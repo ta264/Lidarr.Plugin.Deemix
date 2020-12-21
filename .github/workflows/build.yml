@@ -38,3 +38,29 @@ jobs:
         with:
           name: ${{ matrix.framework }}
           path: ./${{ env.PLUGIN_NAME }}.${{ matrix.framework }}.zip
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifact (net462)
+        uses: actions/download-artifact@v2
+        with:
+          name: net462
+      - name: Download Artifact (netcoreapp3.1)
+        uses: actions/download-artifact@v2
+        with:
+          name: netcoreapp3.1
+      - name: list files
+        run: ls -lR
+      - uses: meeDamian/github-release@2.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ env.PLUGIN_VERSION }}
+          commitish: ${{ env.GITHUB_SHA }}
+          draft: true
+          prerelease: true
+          files: >
+            ${{ env.PLUGIN_NAME }}.netcoreapp3.1.zip
+            ${{ env.PLUGIN_NAME }}.net462.zip
+          gzip: false
