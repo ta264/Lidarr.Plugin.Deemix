@@ -2,9 +2,6 @@ name: Build Plugin
 on:
   push:
   pull_request:
-  release:
-    types:
-      - published
 env:
   # Stop wasting time caching packages
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
