@@ -1,0 +1,28 @@
+name: .NET Core
+on:
+  push:
+  pull_request:
+  release:
+    types:
+      - published
+env:
+  # Stop wasting time caching packages
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  # Disable sending usage data to Microsoft
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: 3.1.404
+        run: dotnet publish src/*.sln -c Release -f netcoreapp3.1
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: netcore
+          path: ./_plugins/netcoreapp3.1/Lidarr.Plugin.Deemix/publish/
