@@ -1,4 +1,4 @@
-name: .NET Core
+name: Build Plugin
 on:
   push:
   pull_request:
@@ -14,6 +14,9 @@ env:
   PLUGIN_VERSION: 1.0.0.${{ github.run_number }}
 jobs:
   build:
+    strategy:
+      matrix:
+        framework: [ netcoreapp3.1, net462 ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -28,10 +31,10 @@ jobs:
         run: |
           sed -i'' -e "s/<AssemblyVersion>[0-9.*]\+<\/AssemblyVersion>/<AssemblyVersion>$PLUGINVERSION<\/AssemblyVersion>/g" src/Directory.Build.props
           sed -i'' -e "s/<AssemblyConfiguration>[\$()A-Za-z-]\+<\/AssemblyConfiguration>/<AssemblyConfiguration>${GITHUB_REF#refs/heads/}<\/AssemblyConfiguration>/g" src/Directory.Build.props
-      - name: Build net core
-        run: dotnet publish src/*.sln -c Release -f netcoreapp3.1
+      - name: Build
+        run: dotnet publish src/*.sln -c Release -f ${{ matrix.framework }}
       - name: Upload net core
         uses: actions/upload-artifact@v2
         with:
-          name: netcore
-          path: ./_plugins/netcoreapp3.1/$PLUGIN_NAME/publish/
+          name: ${{ matrix.framework }}
+          path: ./${{ env.PLUGIN_NAME }}.${{ matrix.framework }}.zip

@@ -16,5 +16,11 @@
       <ExcludeAssets>runtime</ExcludeAssets>
     </ProjectReference>
   </ItemGroup>
+  <Target Name="ZipOutputPath" AfterTargets="Publish">
+    <ZipDirectory
+        SourceDirectory="$(PublishDir)"
+        DestinationFile="$(SolutionDir)\..\Lidarr.Plugin.Deemix.$(TargetFramework).zip" />
+  </Target>
+
 
 </Project>
