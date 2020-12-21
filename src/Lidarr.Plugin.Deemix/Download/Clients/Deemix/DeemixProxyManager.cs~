@@ -1,7 +1,0 @@
-namespace NzbDrone.Core.Download.Clients.Deemix
-{
-    public interface IDeemixProxyManager
-    {
-        public DeemmixProxy Get(string url);
-    }
-}

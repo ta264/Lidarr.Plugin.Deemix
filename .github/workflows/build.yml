@@ -58,6 +58,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: v${{ env.PLUGIN_VERSION }}
           commitish: ${{ env.GITHUB_SHA }}
+          name: Deemix Plugin
           draft: true
           prerelease: true
           files: >
