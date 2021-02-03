@@ -27,6 +27,7 @@ jobs:
           dotnet-version: 3.1.404
       - name: Update Version Info
         run: |
+          echo $PLUGIN_VERSION
           sed -i'' -e "s/<AssemblyVersion>[0-9.*]\+<\/AssemblyVersion>/<AssemblyVersion>$PLUGIN_VERSION<\/AssemblyVersion>/g" src/Directory.Build.props
           sed -i'' -e "s/<AssemblyConfiguration>[\$()A-Za-z-]\+<\/AssemblyConfiguration>/<AssemblyConfiguration>${GITHUB_REF#refs/heads/}<\/AssemblyConfiguration>/g" src/Directory.Build.props
           sed -i'' -e "s/<AssemblyVersion>[0-9.*]\+<\/AssemblyVersion>/<AssemblyVersion>$MINIMUM_LIDARR_VERSION<\/AssemblyVersion>/g" src/Lidarr/src/Directory.Build.props
