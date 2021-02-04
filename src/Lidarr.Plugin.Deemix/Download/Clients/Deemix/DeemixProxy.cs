@@ -6,6 +6,7 @@ using Newtonsoft.Json.Linq;
 using NLog;
 using NzbDrone.Common.Disk;
 using NzbDrone.Common.Extensions;
+using NzbDrone.Common.TPL;
 using SocketIOClient;
 
 namespace NzbDrone.Core.Download.Clients.Deemix
@@ -35,15 +36,20 @@ namespace NzbDrone.Core.Download.Clients.Deemix
         private readonly ManualResetEventSlim _connected;
         private readonly Dictionary<int, DeemixPendingItem<string>> _pendingAdds;
         private readonly Dictionary<int, DeemixPendingItem<DeemixSearchResponse>> _pendingSearches;
+        private readonly IRateLimitService _rateLimitService;
 
         private bool _disposed;
         private SocketIO _client;
         private List<DeemixClientItem> _queue;
         private DeemixConfig _config;
+        private string _url;
 
         public DeemixProxy(string url,
+                           IRateLimitService rateLimitService,
                            Logger logger)
         {
+            _url = url;
+            _rateLimitService = rateLimitService;
             _logger = logger;
 
             _connected = new ManualResetEventSlim(false);
@@ -77,7 +83,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
 
         public void RemoveFromQueue(string downloadId)
         {
-            _client.EmitAsync("removeFromQueue", downloadId);
+            Emit("removeFromQueue", downloadId);
         }
 
         public string Download(string url, int bitrate)
@@ -94,13 +100,13 @@ namespace NzbDrone.Core.Download.Clients.Deemix
                 var ack = Interlocked.Increment(ref AddId);
                 _pendingAdds[ack] = pending;
 
-                _client.EmitAsync("addToQueue",
-                                  new
-                                  {
-                                      url,
-                                      bitrate,
-                                      ack
-                                  });
+                Emit("addToQueue",
+                     new
+                     {
+                         url,
+                         bitrate,
+                         ack
+                     });
 
                 _logger.Trace($"Awaiting result for add {ack}");
                 var added = pending.Wait(60000);
@@ -130,14 +136,14 @@ namespace NzbDrone.Core.Download.Clients.Deemix
                 var ack = Interlocked.Increment(ref AddId);
                 _pendingSearches[ack] = pending;
 
-                _client.EmitAsync("albumSearch",
-                                  new
-                                  {
-                                      term,
-                                      start = offset,
-                                      nb = count,
-                                      ack
-                                  });
+                Emit("albumSearch",
+                     new
+                     {
+                         term,
+                         start = offset,
+                         nb = count,
+                         ack
+                     });
 
                 _logger.Trace($"Awaiting result for search {ack}");
                 var gotResult = pending.Wait(60000);
@@ -165,11 +171,11 @@ namespace NzbDrone.Core.Download.Clients.Deemix
                 var ack = Interlocked.Increment(ref AddId);
                 _pendingSearches[ack] = pending;
 
-                _client.EmitAsync("newReleases",
-                                  new
-                                  {
-                                      ack
-                                  });
+                Emit("newReleases",
+                     new
+                     {
+                         ack
+                     });
 
                 _logger.Trace($"Awaiting result for RSS {ack}");
                 var gotResult = pending.Wait(60000);
@@ -271,6 +277,12 @@ namespace NzbDrone.Core.Download.Clients.Deemix
             {
                 throw new DownloadClientUnavailableException("Unable to connect to Deemix");
             }
+        }
+
+        private void Emit(string eventName, params object[] data)
+        {
+            _rateLimitService.WaitAndPulse(_url, TimeSpan.FromSeconds(2));
+            _client.EmitAsync(eventName, data).GetAwaiter().GetResult();
         }
 
         private Action<SocketIOResponse> ErrorHandler(Action<SocketIOResponse> action, bool logResponse)

@@ -2,6 +2,7 @@ using System;
 using NLog;
 using NzbDrone.Common.Cache;
 using NzbDrone.Common.Http;
+using NzbDrone.Common.TPL;
 
 namespace NzbDrone.Core.Download.Clients.Deemix
 {
@@ -15,12 +16,15 @@ namespace NzbDrone.Core.Download.Clients.Deemix
     {
         private readonly ICached<DeemixProxy> _store;
         private readonly Logger _logger;
+        private readonly IRateLimitService _rateLimitService;
 
         public DeemixProxyManager(ICacheManager cacheManager,
+                                  IRateLimitService rateLimitService,
                                   Logger logger)
         {
             _store = cacheManager.GetRollingCache<DeemixProxy>(GetType(), "deemix", TimeSpan.FromMinutes(2));
             _logger = logger;
+            _rateLimitService = rateLimitService;
         }
 
         public DeemixProxy GetProxy(DeemixSettings settings)
@@ -30,7 +34,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
 
         public DeemixProxy GetProxy(string url)
         {
-            var proxy = _store.Get(url, () => new DeemixProxy(url, _logger));
+            var proxy = _store.Get(url, () => new DeemixProxy(url, _rateLimitService, _logger));
 
             _store.ClearExpired();
 
