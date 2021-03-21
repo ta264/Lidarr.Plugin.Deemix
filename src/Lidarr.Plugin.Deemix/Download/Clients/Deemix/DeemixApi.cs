@@ -90,6 +90,6 @@ namespace NzbDrone.Core.Download.Clients.Deemix
         public string Version { get; set; }
         public string Link { get; set; }
 
-        public bool Explicit => ExplicitAlbumContent?.ExplicitLyrics != 0 || ExplicitAlbumContent.ExplicitCover != 0;
+        public bool Explicit => ExplicitAlbumContent?.ExplicitLyrics == 1 || ExplicitAlbumContent.ExplicitCover == 1;
     }
 }
