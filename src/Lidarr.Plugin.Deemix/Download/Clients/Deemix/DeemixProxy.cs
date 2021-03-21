@@ -18,6 +18,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
 
     public class DeemixProxy : IDisposable
     {
+        private const int DEEMIX_TIMEOUT = 60000;
         private static readonly Dictionary<string, long> Bitrates = new Dictionary<string, long>
         {
             { "1", 128 },
@@ -109,7 +110,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
                      });
 
                 _logger.Trace($"Awaiting result for add {ack}");
-                var added = pending.Wait(60000);
+                var added = pending.Wait(DEEMIX_TIMEOUT);
 
                 _pendingAdds.Remove(ack);
 
@@ -146,7 +147,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
                      });
 
                 _logger.Trace($"Awaiting result for search {ack}");
-                var gotResult = pending.Wait(60000);
+                var gotResult = pending.Wait(DEEMIX_TIMEOUT);
 
                 _pendingSearches.Remove(ack);
 
@@ -178,7 +179,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
                      });
 
                 _logger.Trace($"Awaiting result for RSS {ack}");
-                var gotResult = pending.Wait(60000);
+                var gotResult = pending.Wait(DEEMIX_TIMEOUT);
 
                 _pendingSearches.Remove(ack);
 
@@ -273,7 +274,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
             _client.ConnectAsync();
 
             _logger.Trace("waiting for connection");
-            if (!_connected.Wait(60000))
+            if (!_connected.Wait(DEEMIX_TIMEOUT))
             {
                 throw new DownloadClientUnavailableException("Unable to connect to Deemix");
             }
