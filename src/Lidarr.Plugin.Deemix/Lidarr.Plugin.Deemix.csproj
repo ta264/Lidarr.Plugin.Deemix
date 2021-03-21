@@ -4,7 +4,7 @@
     <TargetFrameworks>net462;netcoreapp3.1</TargetFrameworks>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="SocketIOClient" Version="2.1.1" />
+    <PackageReference Include="SocketIOClient" Version="2.1.6" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Lidarr\src\NzbDrone.Core\Lidarr.Core.csproj">
