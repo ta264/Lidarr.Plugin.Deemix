@@ -14,7 +14,7 @@ jobs:
   build:
     strategy:
       matrix:
-        framework: [ netcoreapp3.1, net462 ]
+        framework: [ net5.0 ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,7 +24,7 @@ jobs:
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v1
         with:
-          dotnet-version: 3.1.404
+          dotnet-version: 5.0.402
       - name: Update Version Info
         run: |
           echo $PLUGIN_VERSION
@@ -43,14 +43,10 @@ jobs:
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
-      - name: Download Artifact (net462)
+      - name: Download Artifact (net5.0)
         uses: actions/download-artifact@v2
         with:
-          name: net462
-      - name: Download Artifact (netcoreapp3.1)
-        uses: actions/download-artifact@v2
-        with:
-          name: netcoreapp3.1
+          name: net5.0
       - uses: meeDamian/github-release@2.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -64,6 +60,5 @@ jobs:
           draft: true
           prerelease: true
           files: >
-            ${{ env.PLUGIN_NAME }}.netcoreapp3.1.zip
-            ${{ env.PLUGIN_NAME }}.net462.zip
+            ${{ env.PLUGIN_NAME }}.net5.0.zip
           gzip: false
