@@ -6,28 +6,28 @@ using NzbDrone.Core.Download;
 using NzbDrone.Core.Indexers;
 using NzbDrone.Core.Parser.Model;
 
-namespace NzbDrone.Core.Blacklisting
+namespace NzbDrone.Core.Blocklisting
 {
-    public class DeemixBlacklist : IBlacklistForProtocol
+    public class DeemixBlocklist : IBlocklistForProtocol
     {
-        private readonly IBlacklistRepository _blacklistRepository;
+        private readonly IBlocklistRepository _blocklistRepository;
 
-        public DeemixBlacklist(IBlacklistRepository blacklistRepository)
+        public DeemixBlocklist(IBlocklistRepository blocklistRepository)
         {
-            _blacklistRepository = blacklistRepository;
+            _blocklistRepository = blocklistRepository;
         }
 
         public string Protocol => nameof(DeemixDownloadProtocol);
 
-        public bool IsBlacklisted(int artistId, ReleaseInfo release)
+        public bool IsBlocklisted(int artistId, ReleaseInfo release)
         {
-            var blacklistedByTorrentInfohash = _blacklistRepository.BlacklistedByTorrentInfoHash(artistId, release.Guid);
-            return blacklistedByTorrentInfohash.Any(b => SameRelease(b, release));
+            var blocklistedByTorrentInfohash = _blocklistRepository.BlocklistedByTorrentInfoHash(artistId, release.Guid);
+            return blocklistedByTorrentInfohash.Any(b => SameRelease(b, release));
         }
 
-        public Blacklist GetBlacklist(DownloadFailedEvent message)
+        public Blocklist GetBlocklist(DownloadFailedEvent message)
         {
-            return new Blacklist
+            return new Blocklist
             {
                 ArtistId = message.ArtistId,
                 AlbumIds = message.AlbumIds,
@@ -43,7 +43,7 @@ namespace NzbDrone.Core.Blacklisting
             };
         }
 
-        private bool SameRelease(Blacklist item, ReleaseInfo release)
+        private bool SameRelease(Blocklist item, ReleaseInfo release)
         {
             if (release.Guid.IsNotNullOrWhiteSpace())
             {
