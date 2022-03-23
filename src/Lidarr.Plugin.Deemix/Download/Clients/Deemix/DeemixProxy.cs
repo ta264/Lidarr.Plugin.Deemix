@@ -72,7 +72,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
             var request = BuildRequest(settings)
                 .Resource("/api/removeFromQueue")
                 .Post()
-                .AddFormParameter("uuid", downloadId);
+                .AddQueryParam("uuid", downloadId);
 
             ProcessRequest(request);
         }
