@@ -1,24 +1,28 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
-using Newtonsoft.Json.Linq;
+using System.Net;
 using NLog;
+using NzbDrone.Common.Cache;
 using NzbDrone.Common.Disk;
 using NzbDrone.Common.Extensions;
-using NzbDrone.Common.TPL;
-using SocketIOClient;
+using NzbDrone.Common.Http;
+using NzbDrone.Common.Serializer;
+using NzbDrone.Core.Indexers.Deemix;
 
 namespace NzbDrone.Core.Download.Clients.Deemix
 {
-    public class DeemixClientItem : DownloadClientItem
+    public interface IDeemixProxy
     {
-        public DateTime? Started { get; set; }
+        DeemixConfig GetSettings(DeemixSettings settings);
+        List<DownloadClientItem> GetQueue(DeemixSettings settings);
+        string Download(string url, int bitrate, DeemixSettings settings);
+        void RemoveFromQueue(string downloadId, DeemixSettings settings);
+        public void Authenticate(DeemixSettings settings);
+        public void Authenticate(DeemixIndexerSettings settings);
     }
 
-    public class DeemixProxy : IDisposable
+    public class DeemixProxy : IDeemixProxy
     {
-        private const int DEEMIX_TIMEOUT = 60000;
         private static readonly Dictionary<string, long> Bitrates = new Dictionary<string, long>
         {
             { "1", 128 },
@@ -31,426 +35,75 @@ namespace NzbDrone.Core.Download.Clients.Deemix
             { "3", "MP3 320" },
             { "9", "FLAC" }
         };
-        private static int AddId;
 
+        private readonly ICached<string> _sessionCookieCache;
+        private readonly ICached<DeemixUser> _userCache;
+        private readonly IHttpClient _httpClient;
         private readonly Logger _logger;
-        private readonly ManualResetEventSlim _connected;
-        private readonly Dictionary<int, DeemixPendingItem<string>> _pendingAdds;
-        private readonly Dictionary<int, DeemixPendingItem<DeemixSearchResponse>> _pendingSearches;
-        private readonly IRateLimitService _rateLimitService;
 
-        private bool _disposed;
-        private SocketIO _client;
-        private List<DeemixClientItem> _queue;
-        private DeemixConfig _config;
-        private string _url;
-
-        public DeemixProxy(string url,
-                           IRateLimitService rateLimitService,
-                           Logger logger)
+        public DeemixProxy(ICacheManager cacheManager,
+            IHttpClient httpClient,
+            Logger logger)
         {
-            _url = url;
-            _rateLimitService = rateLimitService;
+            _sessionCookieCache = cacheManager.GetCache<string>(GetType(), "sessionCookies");
+            _userCache = cacheManager.GetCache<DeemixUser>(GetType(), "user");
+            _httpClient = httpClient;
             _logger = logger;
-
-            _connected = new ManualResetEventSlim(false);
-            _queue = new List<DeemixClientItem>();
-
-            _pendingAdds = new Dictionary<int, DeemixPendingItem<string>>();
-            _pendingSearches = new Dictionary<int, DeemixPendingItem<DeemixSearchResponse>>();
-
-            Connect(url);
         }
 
-        public DeemixConfig GetSettings()
+        public DeemixConfig GetSettings(DeemixSettings settings)
         {
-            if (!_connected.Wait(5000))
-            {
-                throw new DownloadClientUnavailableException("Deemix not connected");
-            }
+            var request = BuildRequest(settings).Resource("/api/getSettings");
+            var response = ProcessRequest<DeemixConfigResult>(request);
 
-            return _config;
+            return response.Settings;
         }
 
-        public List<DeemixClientItem> GetQueue()
+        public List<DownloadClientItem> GetQueue(DeemixSettings settings)
         {
-            if (!_connected.Wait(5000))
-            {
-                throw new DownloadClientUnavailableException("Deemix not connected");
-            }
+            var request = BuildRequest(settings).Resource("/api/getQueue");
+            var response = ProcessRequest<DeemixQueue>(request);
 
-            return _queue;
+            return response.Queue.Values.Select(ToDownloadClientItem).ToList();
         }
 
-        public void RemoveFromQueue(string downloadId)
+        public void RemoveFromQueue(string downloadId, DeemixSettings settings)
         {
-            Emit("removeFromQueue", downloadId);
+            var request = BuildRequest(settings)
+                .Resource("/api/removeFromQueue")
+                .Post()
+                .AddFormParameter("uuid", downloadId);
+
+            ProcessRequest(request);
         }
 
-        public string Download(string url, int bitrate)
+        public string Download(string url, int bitrate, DeemixSettings settings)
         {
-            if (!_connected.Wait(5000))
+            Authenticate(settings);
+
+            var request = BuildRequest(settings)
+                .Resource("/api/addToQueue")
+                .Post()
+                .AddFormParameter("url", url)
+                .AddFormParameter("bitrate", bitrate);
+
+            var response = ProcessRequest<DeemixResult<DeemixAddResult>>(request);
+
+            if (response.Result)
             {
-                throw new DownloadClientUnavailableException("Deemix not connected");
-            }
-
-            _logger.Trace($"Downloading {url} bitrate {bitrate}");
-
-            using (var pending = new DeemixPendingItem<string>())
-            {
-                var ack = Interlocked.Increment(ref AddId);
-                _pendingAdds[ack] = pending;
-
-                Emit("addToQueue",
-                     new
-                     {
-                         url,
-                         bitrate,
-                         ack
-                     });
-
-                _logger.Trace($"Awaiting result for add {ack}");
-                var added = pending.Wait(DEEMIX_TIMEOUT);
-
-                _pendingAdds.Remove(ack);
-
-                if (!added)
+                if (response.Data.Obj.Count != 1)
                 {
-                    throw new DownloadClientUnavailableException("Could not add item");
+                    throw new DownloadClientException("Expected Deemix to add 1 item, got {0}", response.Data.Obj.Count);
                 }
 
-                return pending.Item;
-            }
-        }
-
-        public DeemixSearchResponse Search(string term, int count, int offset)
-        {
-            if (!_connected.Wait(5000))
-            {
-                throw new DownloadClientUnavailableException("Deemix not connected");
+                _logger.Trace("Downloading item {0}", response.Data.Obj[0].Uuid);
+                return response.Data.Obj[0].Uuid;
             }
 
-            _logger.Trace($"Searching for {term}");
-
-            using (var pending = new DeemixPendingItem<DeemixSearchResponse>())
-            {
-                var ack = Interlocked.Increment(ref AddId);
-                _pendingSearches[ack] = pending;
-
-                Emit("albumSearch",
-                     new
-                     {
-                         term,
-                         start = offset,
-                         nb = count,
-                         ack
-                     });
-
-                _logger.Trace($"Awaiting result for search {ack}");
-                var gotResult = pending.Wait(DEEMIX_TIMEOUT);
-
-                _pendingSearches.Remove(ack);
-
-                if (!gotResult)
-                {
-                    throw new DownloadClientUnavailableException("Could not search for {0}", term);
-                }
-
-                return pending.Item;
-            }
+            throw new DownloadClientException("Error adding item to Deemix: {0}", response.Errid);
         }
 
-        public DeemixSearchResponse RecentReleases()
-        {
-            if (!_connected.Wait(5000))
-            {
-                throw new DownloadClientUnavailableException("Deemix not connected");
-            }
-
-            using (var pending = new DeemixPendingItem<DeemixSearchResponse>())
-            {
-                var ack = Interlocked.Increment(ref AddId);
-                _pendingSearches[ack] = pending;
-
-                Emit("newReleases",
-                     new
-                     {
-                         ack
-                     });
-
-                _logger.Trace($"Awaiting result for RSS {ack}");
-                var gotResult = pending.Wait(DEEMIX_TIMEOUT);
-
-                _pendingSearches.Remove(ack);
-
-                if (!gotResult)
-                {
-                    throw new DownloadClientUnavailableException("Could not get recent releases");
-                }
-
-                return pending.Item;
-            }
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (disposing)
-            {
-                // Dispose managed state (managed objects).
-                Disconnect();
-                _connected.Dispose();
-            }
-
-            _disposed = true;
-        }
-
-        private void Disconnect()
-        {
-            if (_client != null)
-            {
-                _logger.Trace("Disconnecting");
-                _client.DisconnectAsync().GetAwaiter().GetResult();
-            }
-        }
-
-        private void Connect(string url)
-        {
-            _queue = new List<DeemixClientItem>();
-
-            var options = new SocketIOOptions
-            {
-                EIO = 4,
-                ReconnectionDelay = 1000,
-                ReconnectionDelayMax = 10000
-            };
-
-            _client = new SocketIO(url, options);
-            _client.OnConnected += (s, e) =>
-            {
-                _logger.Trace("connected");
-                _connected.Set();
-            };
-
-            _client.OnDisconnected += (s, e) =>
-            {
-                _logger.Trace("disconnected");
-                _connected.Reset();
-            };
-
-            _client.OnPing += (s, e) => _logger.Trace("ping");
-            _client.OnPong += (s, e) => _logger.Trace("pong");
-
-            _client.OnReconnecting += (s, e) => _logger.Trace("reconnecting");
-            _client.OnError += (s, e) => _logger.Warn($"error {e}");
-
-            _client.On("init_settings", ErrorHandler(OnSettings, true));
-            _client.On("updateSettings", ErrorHandler(OnSettings, true));
-            _client.On("init_downloadQueue", ErrorHandler(OnInitQueue, true));
-            _client.On("addedToQueue", ErrorHandler(OnAddedToQueue, true));
-            _client.On("updateQueue", ErrorHandler(OnUpdateQueue, true));
-            _client.On("finishDownload", ErrorHandler(response => UpdateDownloadStatus(response, DownloadItemStatus.Completed), true));
-            _client.On("startDownload", ErrorHandler(response => UpdateDownloadStatus(response, DownloadItemStatus.Downloading), true));
-            _client.On("removedFromQueue", ErrorHandler(OnRemovedFromQueue, true));
-            _client.On("removedAllDownloads", ErrorHandler(OnRemovedAllFromQueue, true));
-            _client.On("removedFinishedDownloads", ErrorHandler(OnRemovedFinishedFromQueue, true));
-            _client.On("loginNeededToDownload", OnLoginRequired);
-            _client.On("queueError", OnQueueError);
-            _client.On("albumSearch", ErrorHandler(OnSearchResult, false));
-            _client.On("newReleases", ErrorHandler(OnSearchResult, false));
-
-            _logger.Trace("Connecting to deemix");
-            _connected.Reset();
-            _client.ConnectAsync();
-
-            _logger.Trace("waiting for connection");
-            if (!_connected.Wait(DEEMIX_TIMEOUT))
-            {
-                throw new DownloadClientUnavailableException("Unable to connect to Deemix");
-            }
-        }
-
-        private void Emit(string eventName, params object[] data)
-        {
-            _rateLimitService.WaitAndPulse(_url, TimeSpan.FromSeconds(2));
-            _client.EmitAsync(eventName, data).GetAwaiter().GetResult();
-        }
-
-        private Action<SocketIOResponse> ErrorHandler(Action<SocketIOResponse> action, bool logResponse)
-        {
-            return (SocketIOResponse x) =>
-            {
-                if (logResponse)
-                {
-                    _logger.Trace(x.ToString());
-                }
-
-                try
-                {
-                    action(x);
-                }
-                catch (Exception e)
-                {
-                    e.Data.Add("response", x.GetValue().ToString());
-                    _logger.Error(e, "Deemix error");
-                }
-            };
-        }
-
-        private void OnSettings(SocketIOResponse response)
-        {
-            _config = response.GetValue<DeemixConfig>();
-        }
-
-        private void OnInitQueue(SocketIOResponse response)
-        {
-            var dq = response.GetValue<DeemixQueue>();
-
-            var items = dq.QueueList.Values.ToList();
-
-            _queue = items.Select(x => ToDownloadClientItem(x)).ToList();
-        }
-
-        private void OnUpdateQueue(SocketIOResponse response)
-        {
-            var item = response.GetValue<DeemixQueueUpdate>();
-
-            var queueItem = _queue.SingleOrDefault(x => x.DownloadId == item.Uuid);
-            if (queueItem == null)
-            {
-                return;
-            }
-
-            if (item.Progress.HasValue)
-            {
-                var progress = Math.Min(item.Progress.Value, 100) / 100.0;
-                queueItem.RemainingSize = (long)((1 - progress) * queueItem.TotalSize);
-
-                if (queueItem.Started.HasValue)
-                {
-                    var elapsed = DateTime.UtcNow - queueItem.Started;
-                    queueItem.RemainingTime = TimeSpan.FromTicks((long)(elapsed.Value.Ticks * (1 - progress) / progress));
-                }
-            }
-
-            if (item.ExtrasPath.IsNotNullOrWhiteSpace())
-            {
-                queueItem.OutputPath = new OsPath(item.ExtrasPath);
-            }
-        }
-
-        private void UpdateDownloadStatus(SocketIOResponse response, DownloadItemStatus status)
-        {
-            var uuid = response.GetValue<string>();
-
-            var queueItem = _queue.SingleOrDefault(x => x.DownloadId == uuid);
-            if (queueItem != null)
-            {
-                queueItem.Status = status;
-
-                if (status == DownloadItemStatus.Downloading)
-                {
-                    queueItem.Started = DateTime.UtcNow;
-                }
-            }
-        }
-
-        private void OnRemovedFromQueue(SocketIOResponse response)
-        {
-            var uuid = response.GetValue<string>();
-
-            var queueItem = _queue.SingleOrDefault(x => x.DownloadId == uuid);
-            if (queueItem != null)
-            {
-                _queue.Remove(queueItem);
-            }
-        }
-
-        private void OnRemovedAllFromQueue(SocketIOResponse response)
-        {
-            _queue = new List<DeemixClientItem>();
-        }
-
-        private void OnRemovedFinishedFromQueue(SocketIOResponse response)
-        {
-            _queue = _queue.Where(x => x.Status != DownloadItemStatus.Completed).ToList();
-        }
-
-        private void OnAddedToQueue(SocketIOResponse response)
-        {
-            DeemixQueueItem item;
-
-            if (response.GetValue().Type == JTokenType.Object)
-            {
-                item = response.GetValue<DeemixQueueItem>();
-            }
-            else if (response.GetValue().Type == JTokenType.Array)
-            {
-                var list = response.GetValue<List<DeemixQueueItem>>();
-
-                if (list.Count != 1)
-                {
-                    _logger.Trace("New item not a single release, skipping");
-                    return;
-                }
-
-                item = list.Single();
-            }
-            else
-            {
-                _logger.Trace("New queue item response not of recognised form, skipping");
-                return;
-            }
-
-            if (item.Type != "album" && item.Type != "track")
-            {
-                _logger.Trace("New queue item not album or track, skipping");
-                return;
-            }
-
-            if (item.Ack.HasValue && _pendingAdds.TryGetValue(item.Ack.Value, out var pending))
-            {
-                pending.Item = item.Uuid;
-                pending.Ack();
-            }
-
-            var dci = ToDownloadClientItem(item);
-            _queue.Add(dci);
-        }
-
-        private void OnQueueError(SocketIOResponse response)
-        {
-            var error = response.GetValue().ToString();
-            _logger.Error($"Queue error:\n {error}");
-        }
-
-        private void OnSearchResult(SocketIOResponse response)
-        {
-            var result = response.GetValue<DeemixSearchResponse>();
-
-            if (result.Ack.HasValue && _pendingSearches.TryGetValue(result.Ack.Value, out var pending))
-            {
-                pending.Item = result;
-                pending.Ack();
-            }
-        }
-
-        private void OnLoginRequired(SocketIOResponse response)
-        {
-            throw new DownloadClientUnavailableException("login required");
-        }
-
-        private static DeemixClientItem ToDownloadClientItem(DeemixQueueItem x)
+        private static DownloadClientItem ToDownloadClientItem(DeemixQueueItem x)
         {
             var title = $"{x.Artist} - {x.Title} [WEB] {Formats[x.Bitrate]}";
             if (x.Explicit)
@@ -461,7 +114,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
             // assume 3 mins per track, bitrates in kbps
             var size = x.Size * 180L * Bitrates[x.Bitrate] * 128L;
 
-            var item = new DeemixClientItem
+            var item = new DownloadClientItem
             {
                 DownloadId = x.Uuid,
                 Title = title,
@@ -498,6 +151,135 @@ namespace NzbDrone.Core.Download.Clients.Deemix
             }
 
             return DownloadItemStatus.Completed;
+        }
+
+        private HttpRequestBuilder BuildRequest(DeemixSettings settings)
+        {
+            return new HttpRequestBuilder(settings.UseSsl, settings.Host, settings.Port, settings.UrlBase)
+            {
+                LogResponseContent = true
+            };
+        }
+
+        private HttpRequestBuilder BuildRequest(string baseUrl)
+        {
+            return new HttpRequestBuilder(baseUrl)
+            {
+                LogResponseContent = true
+            };
+        }
+
+        private TResult ProcessRequest<TResult>(HttpRequestBuilder requestBuilder)
+            where TResult : new()
+        {
+            var responseContent = ProcessRequest(requestBuilder);
+
+            return Json.Deserialize<TResult>(responseContent);
+        }
+
+        private string ProcessRequest(HttpRequestBuilder requestBuilder)
+        {
+            var request = requestBuilder.Build();
+            request.LogResponseContent = true;
+            request.SuppressHttpErrorStatusCodes = new[] { HttpStatusCode.Forbidden };
+
+            var cookie = _sessionCookieCache.Find(requestBuilder.BaseUrl.FullUri);
+            if (cookie != null)
+            {
+                _logger.Trace("Adding cookie {0}", cookie);
+                request.Cookies.Add("connect.sid", cookie);
+            }
+
+            HttpResponse response;
+            try
+            {
+                response = _httpClient.Execute(request);
+            }
+            catch (HttpException ex)
+            {
+                throw new DownloadClientException("Failed to connect to Deemix, check your settings.", ex);
+            }
+            catch (WebException ex)
+            {
+                throw new DownloadClientException("Failed to connect to Deemix, please check your settings.", ex);
+            }
+
+            return response.Content;
+        }
+
+        public void Authenticate(DeemixSettings settings)
+        {
+            var requestBuilder = BuildRequest(settings);
+            var baseUrl = requestBuilder.BaseUrl.FullUri;
+
+            Authenticate(baseUrl, settings.Arl);
+        }
+
+        public void Authenticate(DeemixIndexerSettings settings)
+        {
+            Authenticate(settings.BaseUrl, settings.Arl);
+        }
+
+        private void Authenticate(string baseUrl, string arl)
+        {
+            var requestBuilder = BuildRequest(baseUrl);
+
+            var user = Connect(baseUrl);
+            if (user?.CurrentUser?.Name != null)
+            {
+                _userCache.Set(baseUrl, user.CurrentUser);
+                _logger.Debug("Already logged in to Deemix.");
+                return;
+            }
+
+            var cookie = _sessionCookieCache.Find(baseUrl);
+
+            if (cookie == null)
+            {
+                _sessionCookieCache.Remove(baseUrl);
+                _userCache.Remove(baseUrl);
+            }
+
+            var authLoginRequest = requestBuilder
+                .Resource("api/loginArl")
+                .Post()
+                .AddFormParameter("arl", arl)
+                .Accept(HttpAccept.Json)
+                .Build();
+
+            var response = _httpClient.Execute(authLoginRequest);
+            var cookies = response.GetCookies();
+
+            if (cookies.ContainsKey("connect.sid"))
+            {
+                cookie = cookies["connect.sid"];
+                _sessionCookieCache.Set(baseUrl, cookie);
+
+                _logger.Debug("Got cookie {0}", cookie);
+
+                user = Connect(baseUrl);
+                if (user?.CurrentUser?.Name != null)
+                {
+                    _userCache.Set(baseUrl, user.CurrentUser);
+                    _logger.Debug("Deemix authentication succeeded");
+                    return;
+                }
+
+                _sessionCookieCache.Remove(baseUrl);
+                _userCache.Remove(baseUrl);
+            }
+
+            throw new DownloadClientException("Failed to authenticate with Deemix");
+        }
+
+        private DeemixConnect Connect(string baseUrl)
+        {
+            var requestBuilder = BuildRequest(baseUrl);
+            requestBuilder.Resource("connect");
+
+            var response = ProcessRequest<DeemixConnect>(requestBuilder);
+
+            return response;
         }
     }
 }

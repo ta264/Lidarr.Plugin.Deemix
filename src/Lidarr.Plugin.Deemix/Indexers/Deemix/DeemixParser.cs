@@ -1,30 +1,39 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using NzbDrone.Common.Http;
 using NzbDrone.Core.Download.Clients.Deemix;
 using NzbDrone.Core.Parser.Model;
 
 namespace NzbDrone.Core.Indexers.Deemix
 {
-    public static class DeemixParser
+    public class DeemixParser : IParseIndexerResponse
     {
         private static readonly int[] _bitrates = new[] { 1, 3, 9 };
 
-        public static IList<ReleaseInfo> ParseResponse(DeemixSearchResponse response)
+        public DeemixUser User { get; set; }
+
+        public IList<ReleaseInfo> ParseResponse(IndexerResponse response)
         {
             var torrentInfos = new List<ReleaseInfo>();
 
-            if (response?.Data == null ||
-                response.Total == 0)
-            {
-                return torrentInfos;
-            }
+            var jsonResponse = new HttpResponse<DeemixSearchResponse>(response.HttpResponse);
 
-            foreach (var result in response.Data)
+            foreach (var result in jsonResponse.Resource.Data)
             {
-                foreach (var bitrate in _bitrates)
+                // MP3 128
+                torrentInfos.Add(ToReleaseInfo(result, 1));
+
+                // MP3 320
+                if (User.CanStreamHq)
                 {
-                    torrentInfos.Add(ToReleaseInfo(result, bitrate));
+                    torrentInfos.Add(ToReleaseInfo(result, 3));
+                }
+
+                // FLAC
+                if (User.CanStreamHq)
+                {
+                    torrentInfos.Add(ToReleaseInfo(result, 9));
                 }
             }
 

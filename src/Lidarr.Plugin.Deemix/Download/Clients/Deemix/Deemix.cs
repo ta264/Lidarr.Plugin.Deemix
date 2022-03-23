@@ -15,16 +15,16 @@ namespace NzbDrone.Core.Download.Clients.Deemix
 {
     public class Deemix : DownloadClientBase<DeemixSettings>
     {
-        private readonly IDeemixProxyManager _proxyManager;
+        private readonly IDeemixProxy _proxy;
 
-        public Deemix(IConfigService configService,
+        public Deemix(IDeemixProxy proxy,
+                      IConfigService configService,
                       IDiskProvider diskProvider,
                       IRemotePathMappingService remotePathMappingService,
-                      IDeemixProxyManager proxyManager,
                       Logger logger)
             : base(configService, diskProvider, remotePathMappingService, logger)
         {
-            _proxyManager = proxyManager;
+            _proxy = proxy;
         }
 
         public override string Protocol => nameof(DeemixDownloadProtocol);
@@ -33,9 +33,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
 
         public override IEnumerable<DownloadClientItem> GetItems()
         {
-            var proxy = _proxyManager.GetProxy(Settings);
-
-            var queue = proxy.GetQueue();
+            var queue = _proxy.GetQueue(Settings);
 
             foreach (var item in queue)
             {
@@ -46,22 +44,18 @@ namespace NzbDrone.Core.Download.Clients.Deemix
             return queue;
         }
 
-        public override void RemoveItem(string downloadId, bool deleteData)
+        public override void RemoveItem(DownloadClientItem item, bool deleteData)
         {
-            var proxy = _proxyManager.GetProxy(Settings);
-
             if (deleteData)
             {
-                DeleteItemData(downloadId);
+                DeleteItemData(item);
             }
 
-            proxy.RemoveFromQueue(downloadId);
+            _proxy.RemoveFromQueue(item.DownloadId, Settings);
         }
 
         public override string Download(RemoteAlbum remoteAlbum)
         {
-            var proxy = _proxyManager.GetProxy(Settings);
-
             var release = remoteAlbum.Release;
 
             int bitrate;
@@ -79,13 +73,12 @@ namespace NzbDrone.Core.Download.Clients.Deemix
                 bitrate = 1;
             }
 
-            return proxy.Download(release.DownloadUrl, bitrate);
+            return _proxy.Download(release.DownloadUrl, bitrate, Settings);
         }
 
         public override DownloadClientInfo GetStatus()
         {
-            var proxy = _proxyManager.GetProxy(Settings);
-            var config = proxy.GetSettings();
+            var config = _proxy.GetSettings(Settings);
 
             return new DownloadClientInfo
             {
@@ -101,8 +94,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
 
         private ValidationFailure TestSettings()
         {
-            var proxy = _proxyManager.GetProxy(Settings);
-            var config = proxy.GetSettings();
+            var config = _proxy.GetSettings(Settings);
 
             if (!config.CreateAlbumFolder)
             {
@@ -122,12 +114,16 @@ namespace NzbDrone.Core.Download.Clients.Deemix
                 };
             }
 
-            if (!config.SaveDownloadQueue)
+            try
             {
-                return new NzbDroneValidationFailure(string.Empty, "Deemix must have 'Save Download Queue' enabled")
+                _proxy.Authenticate(Settings);
+            }
+            catch (DownloadClientException)
+            {
+                return new NzbDroneValidationFailure(string.Empty, "Could not login to Deemix. Invalid ARL?")
                 {
                     InfoLink = HttpRequestBuilder.BuildBaseUrl(Settings.UseSsl, Settings.Host, Settings.Port, Settings.UrlBase),
-                    DetailedDescription = "Deemix must have 'Save Download Queue' enabled, otherwise Lidarr won't be able to import if deemix restarts",
+                    DetailedDescription = "Deemix requires a valid ARL to initiate downloads",
                 };
             }
 

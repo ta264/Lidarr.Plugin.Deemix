@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using NLog;
+using NzbDrone.Common.Http;
 using NzbDrone.Core.IndexerSearch.Definitions;
 
 namespace NzbDrone.Core.Indexers.Deemix
@@ -15,11 +16,11 @@ namespace NzbDrone.Core.Indexers.Deemix
         {
             var pageableRequests = new IndexerPageableRequestChain();
 
+            var url = $"{Settings.BaseUrl.TrimEnd('/')}/api/newReleases";
+
             pageableRequests.Add(new[]
             {
-                new DeemixRequest(
-                    Settings.BaseUrl,
-                    x => x.RecentReleases())
+                new IndexerRequest(url, HttpAccept.Json)
             });
 
             return pageableRequests;
@@ -29,8 +30,8 @@ namespace NzbDrone.Core.Indexers.Deemix
         {
             var chain = new IndexerPageableRequestChain();
 
-            chain.AddTier(GetRequests(string.Format("artist:\"{0}\" album:\"{1}\"", searchCriteria.ArtistQuery, searchCriteria.AlbumQuery)));
-            chain.AddTier(GetRequests(string.Format("{0} {1}", searchCriteria.ArtistQuery, searchCriteria.AlbumQuery)));
+            chain.AddTier(GetRequests($"artist:\"{searchCriteria.ArtistQuery}\" album:\"{searchCriteria.AlbumQuery}\""));
+            chain.AddTier(GetRequests($"{searchCriteria.ArtistQuery} {searchCriteria.AlbumQuery}"));
 
             return chain;
         }
@@ -39,7 +40,7 @@ namespace NzbDrone.Core.Indexers.Deemix
         {
             var chain = new IndexerPageableRequestChain();
 
-            chain.AddTier(GetRequests(string.Format("artist:\"{0}\"", searchCriteria.ArtistQuery)));
+            chain.AddTier(GetRequests($"artist:\"{searchCriteria.ArtistQuery}\""));
             chain.AddTier(GetRequests(searchCriteria.ArtistQuery));
 
             return chain;
@@ -49,12 +50,8 @@ namespace NzbDrone.Core.Indexers.Deemix
         {
             for (var page = 0; page < MaxPages; page++)
             {
-                var request =
-                    new DeemixRequest(
-                        Settings.BaseUrl,
-                        x => x.Search(searchParameters, PageSize, page * PageSize));
-
-                yield return request;
+                var url = $"{Settings.BaseUrl.TrimEnd('/')}/api/album-search?term={searchParameters}&nb={PageSize}&start={page * PageSize}";
+                yield return new IndexerRequest(url, HttpAccept.Json);
             }
         }
     }

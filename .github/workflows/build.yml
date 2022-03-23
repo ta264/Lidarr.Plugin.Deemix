@@ -9,12 +9,12 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   PLUGIN_NAME: Lidarr.Plugin.Deemix
   PLUGIN_VERSION: 1.0.0.${{ github.run_number }}
-  MINIMUM_LIDARR_VERSION: 1.0.0.2344
+  MINIMUM_LIDARR_VERSION: 1.0.0.2498
 jobs:
   build:
     strategy:
       matrix:
-        framework: [ net5.0 ]
+        framework: [ net6.0 ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,7 +24,7 @@ jobs:
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v1
         with:
-          dotnet-version: 5.0.402
+          dotnet-version: 6.0.101
       - name: Update Version Info
         run: |
           echo $PLUGIN_VERSION
@@ -43,10 +43,10 @@ jobs:
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
-      - name: Download Artifact (net5.0)
+      - name: Download Artifact (net6.0)
         uses: actions/download-artifact@v2
         with:
-          name: net5.0
+          name: net6.0
       - uses: meeDamian/github-release@2.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -60,5 +60,5 @@ jobs:
           draft: true
           prerelease: true
           files: >
-            ${{ env.PLUGIN_NAME }}.net5.0.zip
+            ${{ env.PLUGIN_NAME }}.net6.0.zip
           gzip: false

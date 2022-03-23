@@ -4,6 +4,56 @@ using Newtonsoft.Json;
 
 namespace NzbDrone.Core.Download.Clients.Deemix
 {
+    public class DeemixResult<T>
+        where T : new()
+    {
+        public bool Result { get; set; }
+
+        public string Errid { get; set; }
+
+        public T Data { get; set; }
+    }
+
+    public class DeemixConfigResult
+    {
+        public DeemixConfig Settings { get; set; }
+    }
+
+    public class DeemixConfig
+    {
+        public string DownloadLocation { get; set; }
+        public bool CreateAlbumFolder { get; set; }
+        public bool CreateSingleFolder { get; set; }
+    }
+
+    public class DeemixConnect
+    {
+        public DeemixUser CurrentUser { get; set; }
+    }
+
+    public class DeemixUser
+    {
+        public long Id { get; set; }
+        public string Name { get; set; }
+        [JsonProperty("can_stream_hq")]
+        public bool CanStreamHq { get; set; }
+        [JsonProperty("can_stream_lossless")]
+        public bool CanStreamLossless { get; set; }
+    }
+
+    public class DeemixAddResult
+    {
+        public List<string> Url { get; set; }
+        public string Bitrate { get; set; }
+        public List<DeemixQueueItem> Obj { get; set; }
+    }
+
+    public class DeemixQueue
+    {
+        public Dictionary<string, DeemixQueueItem> Queue { get; set; }
+        public List<int> QueueOrder { get; set; }
+    }
+
     public class DeemixQueueItem
     {
         public string Title { get; set; }
@@ -16,36 +66,17 @@ namespace NzbDrone.Core.Download.Clients.Deemix
         public bool Failed { get; set; }
         public List<object> Errors { get; set; }
         public int Progress { get; set; }
-        public List<string> Files { get; set; }
+        public List<DeemixFile> Files { get; set; }
         public string Type { get; set; }
         public string Id { get; set; }
         public string Bitrate { get; set; }
         public string Uuid { get; set; }
-        public int? Ack { get; set; }
-    }
-
-    public class DeemixQueueUpdate
-    {
-        public string Uuid { get; set; }
-        public string DownloadPath { get; set; }
-        public string ExtrasPath { get; set; }
-        public int? Progress { get; set; }
-    }
-
-    public class DeemixQueue
-    {
-        public List<string> Queue { get; set; }
-        public List<string> QueueComplete { get; set; }
-        public Dictionary<string, DeemixQueueItem> QueueList { get; set; }
-        public string CurrentItem { get; set; }
     }
 
     public class DeemixSearchResponse
     {
         public IList<DeemixGwAlbum> Data { get; set; }
         public int Total { get; set; }
-        public string Next { get; set; }
-        public int? Ack { get; set; }
     }
 
     public class ExplicitAlbumContent
@@ -91,5 +122,47 @@ namespace NzbDrone.Core.Download.Clients.Deemix
         public string Link { get; set; }
 
         public bool Explicit => ExplicitAlbumContent?.ExplicitLyrics == 1 || ExplicitAlbumContent.ExplicitCover == 1;
+    }
+
+    public class DeemixAlbumUrl
+    {
+        [JsonProperty("url")]
+        public string Url { get; set; }
+
+        [JsonProperty("ext")]
+        public string Ext { get; set; }
+    }
+
+    public class DeemixFileData
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("title")]
+        public string Title { get; set; }
+
+        [JsonProperty("artist")]
+        public string Artist { get; set; }
+    }
+
+    public class DeemixFile
+    {
+        [JsonProperty("albumURLs")]
+        public List<DeemixAlbumUrl> AlbumUrls { get; set; }
+
+        [JsonProperty("albumPath")]
+        public string AlbumPath { get; set; }
+
+        [JsonProperty("albumFilename")]
+        public string AlbumFilename { get; set; }
+
+        [JsonProperty("filename")]
+        public string Filename { get; set; }
+
+        [JsonProperty("data")]
+        public DeemixFileData Data { get; set; }
+
+        [JsonProperty("path")]
+        public string Path { get; set; }
     }
 }

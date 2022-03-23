@@ -1,18 +1,15 @@
 using System;
-using System.Collections.Generic;
 using NLog;
+using NzbDrone.Common.Cache;
 using NzbDrone.Common.Http;
 using NzbDrone.Core.Configuration;
 using NzbDrone.Core.Download.Clients.Deemix;
 using NzbDrone.Core.Parser;
-using NzbDrone.Core.Parser.Model;
 
 namespace NzbDrone.Core.Indexers.Deemix
 {
     public class Deemix : HttpIndexerBase<DeemixIndexerSettings>
     {
-        private readonly IDeemixProxyManager _proxyManager;
-
         public override string Name => "Deemix";
         public override string Protocol => nameof(DeemixDownloadProtocol);
         public override bool SupportsRss => true;
@@ -20,15 +17,20 @@ namespace NzbDrone.Core.Indexers.Deemix
         public override int PageSize => 100;
         public override TimeSpan RateLimit => new TimeSpan(0);
 
-        public Deemix(IDeemixProxyManager proxyManager,
-                      IHttpClient httpClient,
-                      IIndexerStatusService indexerStatusService,
-                      IConfigService configService,
-                      IParsingService parsingService,
-                      Logger logger)
-        : base(httpClient, indexerStatusService, configService, parsingService, logger)
+        private readonly ICached<DeemixUser> _userCache;
+        private readonly IDeemixProxy _deemixProxy;
+
+        public Deemix(ICacheManager cacheManager,
+            IDeemixProxy deemixProxy,
+            IHttpClient httpClient,
+            IIndexerStatusService indexerStatusService,
+            IConfigService configService,
+            IParsingService parsingService,
+            Logger logger)
+            : base(httpClient, indexerStatusService, configService, parsingService, logger)
         {
-            _proxyManager = proxyManager;
+            _userCache = cacheManager.GetCache<DeemixUser>(typeof(DeemixProxy), "user");
+            _deemixProxy = deemixProxy;
         }
 
         public override IIndexerRequestGenerator GetRequestGenerator()
@@ -42,22 +44,12 @@ namespace NzbDrone.Core.Indexers.Deemix
 
         public override IParseIndexerResponse GetParser()
         {
-            return null;
-        }
+            _deemixProxy.Authenticate(Settings);
 
-        protected override IList<ReleaseInfo> FetchPage(IndexerRequest request, IParseIndexerResponse parser)
-        {
-            var proxy = _proxyManager.GetProxy(Settings.BaseUrl);
-            var deemixRequest = (DeemixRequest)request;
-
-            var response = deemixRequest.Request(proxy);
-
-            return DeemixParser.ParseResponse(response);
-        }
-
-        protected override IndexerResponse FetchIndexerResponse(IndexerRequest request)
-        {
-            throw new NotImplementedException();
+            return new DeemixParser()
+            {
+                User = _userCache.Find(Settings.BaseUrl)
+            };
         }
     }
 }

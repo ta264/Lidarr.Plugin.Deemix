@@ -13,6 +13,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
             RuleFor(c => c.Host).ValidHost();
             RuleFor(c => c.Port).InclusiveBetween(1, 65535);
             RuleFor(c => c.UrlBase).ValidUrlBase().When(c => c.UrlBase.IsNotNullOrWhiteSpace());
+            RuleFor(c => c.Arl).NotEmpty().Length(192);
         }
     }
 
@@ -37,6 +38,9 @@ namespace NzbDrone.Core.Download.Clients.Deemix
 
         [FieldDefinition(3, Label = "Use SSL", Type = FieldType.Checkbox)]
         public bool UseSsl { get; set; }
+
+        [FieldDefinition(4, Label = "Arl", Type = FieldType.Textbox)]
+        public string Arl { get; set; }
 
         public NzbDroneValidationResult Validate()
         {
