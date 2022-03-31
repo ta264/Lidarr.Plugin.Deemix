@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -37,15 +38,19 @@ namespace NzbDrone.Core.Download.Clients.Deemix
         };
 
         private readonly ICached<string> _sessionCookieCache;
+        private readonly ICached<DateTime?> _startTimeCache;
         private readonly ICached<DeemixUser> _userCache;
         private readonly IHttpClient _httpClient;
         private readonly Logger _logger;
+
+        private double _bytesPerSecond = 0;
 
         public DeemixProxy(ICacheManager cacheManager,
             IHttpClient httpClient,
             Logger logger)
         {
             _sessionCookieCache = cacheManager.GetCache<string>(GetType(), "sessionCookies");
+            _startTimeCache = cacheManager.GetCache<DateTime?>(GetType(), "startTimes");
             _userCache = cacheManager.GetCache<DeemixUser>(GetType(), "user");
             _httpClient = httpClient;
             _logger = logger;
@@ -64,7 +69,29 @@ namespace NzbDrone.Core.Download.Clients.Deemix
             var request = BuildRequest(settings).Resource("/api/getQueue");
             var response = ProcessRequest<DeemixQueue>(request);
 
-            return response.Queue.Values.Select(ToDownloadClientItem).ToList();
+            var completed = response.Queue.Values.Where(x => x.Status == "completed");
+            var queue = response.Queue.Values.Where(x => x.Status == "inQueue").OrderBy(x => response.QueueOrder.IndexOf(x.Id));
+            var current = response.Current;
+
+            var result = completed.Concat(new[] { current }).Concat(queue).Where(x => x != null).Select(ToDownloadClientItem).ToList();
+
+            var currentItem = result.FirstOrDefault(x => x.Status == DownloadItemStatus.Downloading);
+
+            if (currentItem != null && currentItem.RemainingTime.HasValue)
+            {
+                var remainingTime = currentItem.RemainingTime.Value;
+
+                foreach (var item in result)
+                {
+                    if (item.Status == DownloadItemStatus.Queued)
+                    {
+                        remainingTime += TimeSpan.FromSeconds(item.TotalSize / _bytesPerSecond);
+                        item.RemainingTime = remainingTime;
+                    }
+                }
+            }
+
+            return result;
         }
 
         public void RemoveFromQueue(string downloadId, DeemixSettings settings)
@@ -103,7 +130,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
             throw new DownloadClientException("Error adding item to Deemix: {0}", response.Errid);
         }
 
-        private static DownloadClientItem ToDownloadClientItem(DeemixQueueItem x)
+        private DownloadClientItem ToDownloadClientItem(DeemixQueueItem x)
         {
             var title = $"{x.Artist} - {x.Title} [WEB] {Formats[x.Bitrate]}";
             if (x.Explicit)
@@ -119,7 +146,8 @@ namespace NzbDrone.Core.Download.Clients.Deemix
                 DownloadId = x.Uuid,
                 Title = title,
                 TotalSize = size,
-                RemainingSize = (long)(1 - (x.Progress / 100.0)) * size,
+                RemainingSize = (long)((1 - (x.Progress / 100.0)) * size),
+                RemainingTime = GetRemainingTime(x, size),
                 Status = GetItemStatus(x),
                 CanMoveFiles = true,
                 CanBeRemoved = true
@@ -135,22 +163,56 @@ namespace NzbDrone.Core.Download.Clients.Deemix
 
         private static DownloadItemStatus GetItemStatus(DeemixQueueItem item)
         {
-            if (item.Failed)
+            if (item.Failed > 0)
             {
                 return DownloadItemStatus.Failed;
             }
 
-            if (item.Progress == 0)
+            if (item.Status == "inQueue")
             {
                 return DownloadItemStatus.Queued;
             }
 
-            if (item.Progress < 100)
+            if (item.Status == "completed")
+            {
+                return DownloadItemStatus.Completed;
+            }
+
+            if (item.Progress is > 0 and < 100)
             {
                 return DownloadItemStatus.Downloading;
             }
 
-            return DownloadItemStatus.Completed;
+            return DownloadItemStatus.Queued;
+        }
+
+        private TimeSpan? GetRemainingTime(DeemixQueueItem x, long size)
+        {
+            if (x.Progress == 100)
+            {
+                _startTimeCache.Remove(x.Id);
+                return null;
+            }
+
+            if (x.Progress == 0)
+            {
+                return null;
+            }
+
+            var started = _startTimeCache.Find(x.Id);
+            if (started == null)
+            {
+                started = DateTime.UtcNow;
+                _startTimeCache.Set(x.Id, started);
+                return null;
+            }
+
+            var elapsed = DateTime.UtcNow - started;
+            var progress = Math.Min(x.Progress, 100) / 100.0;
+
+            _bytesPerSecond = (progress * size) / elapsed.Value.TotalSeconds;
+
+            return TimeSpan.FromTicks((long)(elapsed.Value.Ticks * (1 - progress) / progress));
         }
 
         private HttpRequestBuilder BuildRequest(DeemixSettings settings)

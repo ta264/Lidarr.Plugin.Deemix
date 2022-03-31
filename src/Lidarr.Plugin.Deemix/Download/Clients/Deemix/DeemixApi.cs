@@ -51,7 +51,8 @@ namespace NzbDrone.Core.Download.Clients.Deemix
     public class DeemixQueue
     {
         public Dictionary<string, DeemixQueueItem> Queue { get; set; }
-        public List<int> QueueOrder { get; set; }
+        public List<string> QueueOrder { get; set; }
+        public DeemixQueueItem Current { get; set; }
     }
 
     public class DeemixQueueItem
@@ -63,7 +64,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
         public int Size { get; set; }
         public string ExtrasPath { get; set; }
         public int Downloaded { get; set; }
-        public bool Failed { get; set; }
+        public int Failed { get; set; }
         public List<object> Errors { get; set; }
         public int Progress { get; set; }
         public List<DeemixFile> Files { get; set; }
@@ -71,6 +72,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
         public string Id { get; set; }
         public string Bitrate { get; set; }
         public string Uuid { get; set; }
+        public string Status { get; set; }
     }
 
     public class DeemixSearchResponse
