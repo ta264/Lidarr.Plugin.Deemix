@@ -337,7 +337,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
         private DeemixConnect Connect(string baseUrl)
         {
             var requestBuilder = BuildRequest(baseUrl);
-            requestBuilder.Resource("connect");
+            requestBuilder.Resource("api/connect");
 
             var response = ProcessRequest<DeemixConnect>(requestBuilder);
 
