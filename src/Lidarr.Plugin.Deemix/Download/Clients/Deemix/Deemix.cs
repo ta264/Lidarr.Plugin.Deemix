@@ -54,7 +54,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
             _proxy.RemoveFromQueue(item.DownloadId, Settings);
         }
 
-        public override string Download(RemoteAlbum remoteAlbum)
+        public override string Download(RemoteAlbum remoteAlbum, IIndexer indexer)
         {
             var release = remoteAlbum.Release;
 
