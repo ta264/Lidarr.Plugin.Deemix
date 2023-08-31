@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using FluentValidation.Results;
 using NLog;
 using NzbDrone.Common.Disk;
@@ -54,7 +55,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
             _proxy.RemoveFromQueue(item.DownloadId, Settings);
         }
 
-        public override string Download(RemoteAlbum remoteAlbum, IIndexer indexer)
+        public override Task<string> Download(RemoteAlbum remoteAlbum, IIndexer indexer)
         {
             var release = remoteAlbum.Release;
 
@@ -73,7 +74,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
                 bitrate = 1;
             }
 
-            return _proxy.Download(release.DownloadUrl, bitrate, Settings);
+            return Task.FromResult(_proxy.Download(release.DownloadUrl, bitrate, Settings));
         }
 
         public override DownloadClientInfo GetStatus()
