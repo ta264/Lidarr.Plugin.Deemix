@@ -16,7 +16,7 @@
   <Target Name="ZipOutputPath" AfterTargets="Publish">
     <ZipDirectory
         SourceDirectory="$(PublishDir)"
-        DestinationFile="$(SolutionDir)\..\Lidarr.Plugin.Deemix.$(TargetFramework).zip" />
+        DestinationFile="$(SolutionDir)\..\Lidarr.Plugin.Deezer.$(TargetFramework).zip" />
   </Target>
 
 
