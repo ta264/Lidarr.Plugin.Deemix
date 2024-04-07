@@ -38,7 +38,7 @@ namespace NzbDrone.Core.Download.Clients.Deemix
 
             foreach (var item in queue)
             {
-                item.DownloadClientInfo = DownloadClientItemClientInfo.FromDownloadClient(this);
+                item.DownloadClientInfo = DownloadClientItemClientInfo.FromDownloadClient(this, false);
                 item.OutputPath = _remotePathMappingService.RemapRemoteToLocal(Settings.Host, item.OutputPath);
             }
 
