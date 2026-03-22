@@ -14,16 +14,15 @@ namespace NzbDrone.Core.Indexers.Deemix
 
         public virtual IndexerPageableRequestChain GetRecentRequests()
         {
-            var pageableRequests = new IndexerPageableRequestChain();
-
-            var url = $"{Settings.BaseUrl.TrimEnd('/')}/api/newReleases";
-
-            pageableRequests.Add(new[]
-            {
-                new IndexerRequest(url, HttpAccept.Json)
-            });
-
-            return pageableRequests;
+            // The /api/newReleases endpoint in deemix crashes the deemix process
+            // when any album in the feed is unavailable on Deezer (GWAPIError:
+            // "Track unavailable on Deezer"). This unhandled Promise rejection
+            // kills the deemix Node process entirely, causing it to restart.
+            //
+            // Since Lidarr discovers releases via album search rather than the
+            // recent releases feed, returning an empty chain here has no impact
+            // on normal operation and prevents the crash during indexer testing.
+            return new IndexerPageableRequestChain();
         }
 
         public IndexerPageableRequestChain GetSearchRequests(AlbumSearchCriteria searchCriteria)
