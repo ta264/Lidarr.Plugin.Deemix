@@ -14,7 +14,16 @@ namespace NzbDrone.Core.Indexers.Deemix
 
         public virtual IndexerPageableRequestChain GetRecentRequests()
         {
-            return new IndexerPageableRequestChain();
+            var pageableRequests = new IndexerPageableRequestChain();
+
+            var url = $"{Settings.BaseUrl.TrimEnd('/')}/api/newReleases";
+
+            pageableRequests.Add(new[]
+            {
+                new IndexerRequest(url, HttpAccept.Json)
+            });
+
+            return pageableRequests;
         }
 
         public IndexerPageableRequestChain GetSearchRequests(AlbumSearchCriteria searchCriteria)
